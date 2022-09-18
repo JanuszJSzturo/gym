@@ -6,7 +6,7 @@ import pygame
 import numpy as np
 from gym.utils.play import play
 import copy
-
+from enum import Enum, auto
 
 WALL_KICKS_JLTSZ = ([[[(-1, 0), (-1, 1), (0, -2), (-1, -2)], [(1, 0), (1, 1), (0, -2), (1, -2)]],
                      [[(1, 0), (1, -1), (0, 2), (1, 2)], [(1, 0), (1, -1), (0, 2), (1, 2)]],
@@ -19,14 +19,19 @@ WALL_KICKS_I = ([[[(-2, 0), (1, 0), (-2, -1), (1, 2)], [(-1, 0), (2, 0), (-1, 2)
                  [[(1, 0), (-2, 0), (1, -2), (-2, 1)], [(-2, 0), (1, 0), (-2, -1), (1, 2)]]])
 
 
+class Action(Enum):
+    # Change to another number for human player as 0 is active if no key is pressed
+    LEFT = 99
+    RIGHT = 1
+    DOWN = 2
+    ROT_LEFT = 3
+    ROT_RIGHT = 4
+    DROP = 5
+    RESERVE = 6
+
+
 class TetrisState:
     def __init__(self):
-        # self.board = np.zeros((20, 10))
-        # self.current_tetr = None
-        # self.played_tetr = []
-        # self.reserved_tetr = []
-        # self.next_tetr = []
-
         self.reset()
 
     def reset(self):
@@ -39,46 +44,132 @@ class TetrisState:
         populate future tetrominoes with 6 random tetromino
         """
         self.board = np.zeros((20, 10))
-        self.current_tetr = Tetromino.make()
+        self.current_tetr = Tetromino.make("O")
         self.played_tetr = []
-        self.reserved_tetr = []
+        self.reserved_tetr = None
         self.next_tetr = []
+        self.can_reserve = True
 
         for n in range(6):
-            self.next_tetr.append(Tetromino.make())
-
+            self.next_tetr.append(Tetromino.make('T'))
 
     def update(self, action):
-        return
+        game_over = False
+        bottom_reached = False
+
+        if action == Action.LEFT.value:
+            bottom_reached = self.current_tetr.move((-1, 0), self.played_tetr)
+        elif action == Action.RIGHT.value:
+            bottom_reached = self.current_tetr.move((1, 0), self.played_tetr)
+        elif action == Action.DOWN.value:
+            bottom_reached = self.current_tetr.move((0, 1), self.played_tetr)
+        elif action == Action.ROT_LEFT.value:
+            self.current_tetr.rotate(1, self.played_tetr)
+        elif action == Action.ROT_RIGHT.value:
+            self.current_tetr.rotate(-1, self.played_tetr)
+        elif action == Action.DROP.value:
+            pass
+
+        if bottom_reached:
+            self._check_line()
+            # If current tetromino reached bottom we spawn a new tetromino and check if it is game over
+            game_over = self._spawn_tetromino()
+
+        return game_over
+
+    def _spawn_tetromino(self):
+        self.played_tetr.append(self.current_tetr)
+        tetr_name = self.next_tetr.pop().name
+        self.next_tetr.append(Tetromino.make())
+
+        self.current_tetr = Tetromino.make(tetr_name)
+        terminated = Tetromino.collision(self.current_tetr, self.played_tetr)
+
+        return terminated
+
+    def _reserve(self):
+        if self.can_reserve:
+            temp = self.current_tetr
+            self.current_tetr = self.reserved_tetr
+            self.reserved_tetr = temp
+            self.can_reserve = True
+
+    # TODO finish check line
+
+    def _check_line(self):
+        """
+        The idea for checking and updating the grid when a line is complete is as follows:
+        1. Indentify the rows where the line is complete (we do it if a row sums 10)
+        2. For every row, we check every played tetromino if it is affected
+            2.1. Get np.where(tetr.struct) and add the position of the tetr
+            2.2. If any row of the tetr is equal to the row affected we change the 1's to 0's in the tetr struct
+        3. We need to move down each tetromino accordingly
+        """
+        a = self.board.sum(axis=1)
+        affected_rows = np.where(a == 10)
+        print(affected_rows)
+        if affected_rows.size != 0:
+            for row in affected_rows:
+                print(row)
+                for tetr in self.played_tetr:
+                    tetr_struct = np.where(tetr.struct)
+                    tetr_struct_shifted = tetr_struct[0] + tetr._y, tetr_struct[1] + tetr._x
+                    if np.any(tetr_struct_shifted[0] == row):
+                        tetr.struct[tetr_struct[1]] = 0
 
 
+    def get_board(self):
+        return self.board
 
-
-    def spawn_tetromino(self):
-        tetromino = self.next_tetr.pop()
-        return tetromino
+    def get_reserved(self):
+        return self.reserved_tetr
 
 
 class Tetromino:
     def __init__(self):
-        self._x = 0
-        self._y = 0
         self._rotation_state = 0
 
     @staticmethod
-    def make():
+    def make(name=None):
+        """
+        Returns a tetromino of type "name" or random tetromino if name is not specified
+        name: name of the type of tetromino desired if None, random type is returned
+        """
+        if name == 'J':
+            return JBlock()
+        elif name == 'S':
+            return SBlock()
+        elif name == 'I':
+            return IBlock()
+        elif name == 'L':
+            return LBlock()
+        elif name == 'Z':
+            return ZBlock()
+        elif name == 'O':
+            return OBlock()
+        elif name == 'T':
+            return TBlock()
+
+        # If none type specified returns a random tetromino
         pool = (IBlock(), LBlock(), JBlock(), SBlock(), ZBlock(), OBlock(), TBlock())
         tetromino = random.choice(pool)
         return tetromino
 
     def collision(self, others):
-        # TODO: Where should be collision? in Tetromino class or TetrisState??
         """
         Return True if a tetromino collides with other in others, else return False
         """
+        rows, cols = np.where(self.struct == 1)
+        left = self._x + min(cols)
+        right = self._x + max(cols)
+        top = self._y + min(rows)
+        bot = self._y + max(rows)
+
+        if left < 0 or right > 9 or bot > 19:
+            return True
 
         # Array that will be populated with all tetrominoes
-        temp_board = np.zeros((20, 10))
+        temp_board = np.zeros((21, 10))
         current_struct = np.where(self.struct)
         current_struct = current_struct[0] + self._y, current_struct[1] + self._x
         temp_board[current_struct] += 1
@@ -91,7 +182,7 @@ class Tetromino:
                 return True
         return False
 
-    def rotate(self, rot_direction):
+    def rotate(self, rot_direction, collision_group):
         # TODO: Configure rotate with the new class of Tetromino
         """
         rot_direction = 1 or -1 to rotate left or right respectively
@@ -111,33 +202,41 @@ class Tetromino:
         self.struct = np.rot90(self.struct, k=rot_direction)
         self._rotation_state = (self._rotation_state - rot_direction) % 4
 
-        # self.update()
+        if Tetromino.collision(self, collision_group):
+            valid = False
+        else:
+            valid = True
+        "At this point we have tried the basic rotation"
+        if not valid:
+            for move_x, move_y in wall_kicks[starting_rotation_state][rotation_direction]:
+                self._x += move_x
+                self._y -= move_y
+                if not Tetromino.collision(self, collision_group):
+                    valid = True
+                    print("Wall kick performed: ", move_x, move_y)
+                    break
+                else:
+                    self._x -= move_x
+                    self._y += move_y
 
-        # if MyTetromino.collides(self, group) or self.out_of_board():
-        #     valid = False
-        # else:
-        #     valid = True
-        # "At this point we have tried the basic rotation"
-        # if not valid:
-        #     for move_x, move_y in wall_kicks[starting_rotation_state][rotation_direction]:
-        #         self.x += move_x
-        #         self.y -= move_y
-        #         if not MyTetromino.collides(self, group) and not self.out_of_board():
-        #             valid = True
-        #             print("Wall kick performed: ", move_x, move_y)
-        #             break
-        #         else:
-        #             self.x -= move_x
-        #             self.y += move_y
-        #
-        # if not valid:
-        #     self.struct = np.rot90(self.struct, k=-rotation)
-        #     self.rotation_state = (self.rotation_state + rotation) % 4
-        #     self.update()
+        if not valid:
+            self.struct = np.rot90(self.struct, k=-rot_direction)
+            self._rotation_state = (self._rotation_state + rot_direction) % 4
 
-    def move(self, direction):
+    def move(self, direction, collision_group):
+        bottom_reached = False
+        # Resolve movement
         self._x += direction[0]
         self._y += direction[1]
+        # If collision, undo movement
+        if self.collision(collision_group):
+            self._x -= direction[0]
+            self._y -= direction[1]
+            # If moving down, it means that the tetr reached bottom
+            if direction[1]:
+                bottom_reached = True
+
+        return bottom_reached
 
     def get_state(self):
         return self._x, self._y, self._rotation_state
@@ -153,6 +252,8 @@ class IBlock(Tetromino):
     color = (0, 168, 221)
     name = 'I'
     rotations = 4
+    _x = 3
+    _y = -1
 
 
 class LBlock(Tetromino):
@@ -164,6 +265,8 @@ class LBlock(Tetromino):
     color = (237, 96, 0)
     name = 'L'
     rotations = 4
+    _x = 3
+    _y = -1
 
 
 class JBlock(Tetromino):
@@ -175,6 +278,8 @@ class JBlock(Tetromino):
     color = (41, 18, 245)
     name = 'J'
     rotations = 4
+    _x = 3
+    _y = -1
 
 
 class OBlock(Tetromino):
@@ -185,6 +290,8 @@ class OBlock(Tetromino):
     color = (222, 165, 0)
     name = 'O'
     rotations = 0
+    _x = 4
+    _y = -1
 
 
 class SBlock(Tetromino):
@@ -196,6 +303,8 @@ class SBlock(Tetromino):
     color = (82, 226, 0)
     name = 'S'
     rotations = 4
+    _x = 3
+    _y = -1
 
 
 class TBlock(Tetromino):
@@ -207,6 +316,8 @@ class TBlock(Tetromino):
     color = (168, 23, 236)
     name = 'T'
     rotations = 4
+    _x = 3
+    _y = -1
 
 
 class ZBlock(Tetromino):
@@ -218,6 +329,8 @@ class ZBlock(Tetromino):
     color = (249, 38, 52)
     name = 'Z'
     rotations = 4
+    _x = 3
+    _y = -1
 
 
 class DotBlock(Tetromino):
@@ -228,8 +341,9 @@ class DotBlock(Tetromino):
     )
     color = (87, 87, 87)
     name = 'Dot'
-    rotations = 4
-
+    rotations = 0
+    _x = 3
+    _y = -1
 
 
 class TetrisEnv(gym.Env):
@@ -244,28 +358,19 @@ class TetrisEnv(gym.Env):
 
         # Observations are dictionaries with the agent's and the target's location.
         # Each location is encoded as an element of {0, ..., `size`}^2, i.e. MultiDiscrete([size, size]).
+
+        # TODO Check if it is correctly defined
         self.observation_space = spaces.Dict(
             {
-                "agent": spaces.Box(0, self.cell_size - 1, shape=(2,), dtype=int),
-                "target": spaces.Box(0, self.cell_size - 1, shape=(2,), dtype=int),
+                "main_board": spaces.MultiBinary([20, 10]),
+                "next_board": spaces.MultiDiscrete([7, 7, 7, 7, 7, 7]),
+                "reserved_board": spaces.Discrete(7)
             }
         )
 
-        # We have 4 actions, corresponding to "right", "up", "left", "down"
-        self.action_space = spaces.Discrete(4)
-
-        """
-        The following dictionary maps abstract actions from `self.action_space` to 
-        the direction we will walk in if that action is taken.
-        I.e. 0 corresponds to "right", 1 to "up" etc.
-        """
-        self._action_to_direction = {
-            0: np.array([0, 0]),
-            1: np.array([1, 0]),
-            2: np.array([0, 1]),
-            3: np.array([-1, 0]),
-            4: np.array([0, -1])
-        }
+        # TODO Check if it is correctly defined
+        # We have 6 actions, corresponding to "left", "right", "down", "rotate_left", "rotate_right", "drop", "reserve"
+        self.action_space = spaces.Discrete(7)
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
@@ -280,27 +385,18 @@ class TetrisEnv(gym.Env):
         self.window = None
         self.clock = None
 
+
     def _get_obs(self):
-        return {"agent": self._agent_location, "target": self._target_location}
+        return {"main_board": self.internal_state.board, "next_board": self.internal_state.next_tetr, "reserved_board": self.internal_state.reserved_tetr}
 
     def _get_info(self):
-        return {"distance": np.linalg.norm(self._agent_location - self._target_location, ord=1)}
+        return 42
 
     def reset(self, seed=None, options=None):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
 
-        # Choose the agent's location uniformly at random
-        x = int(self.np_random.integers(0, self.width, size=1, dtype=int))
-        y = int(self.np_random.integers(0, self.height, size=1, dtype=int))
-        self._agent_location = np.array((y, x))
-
-        # We will sample the target's location randomly until it does not coincide with the agent's location
-        self._target_location = self._agent_location
-        while np.array_equal(self._target_location, self._agent_location):
-            x = int(self.np_random.integers(0, self.width, size=1, dtype=int))
-            y = int(self.np_random.integers(0, self.height, size=1, dtype=int))
-            self._target_location = np.array((y, x))
+        self.internal_state.reset()
 
         observation = self._get_obs()
         info = self._get_info()
@@ -312,13 +408,11 @@ class TetrisEnv(gym.Env):
 
     def step(self, action):
         # Map the action (element of {0,1,2,3}) to the direction we walk in
-        direction = self._action_to_direction[action]
-        # We use `np.clip` to make sure we don't leave the grid
-        self._agent_location = np.clip(
-            self._agent_location + direction, 0, self.cell_size - 1
-        )
-        # An episode is done iff the agent has reached the target
-        terminated = np.array_equal(self._agent_location, self._target_location)
+
+        # self.internal_state.update(action)
+
+        # TODO define "terminated", "reward", "observation" and "info"
+        terminated = self.internal_state.update(action)
         reward = 1 if terminated else 0  # Binary sparse rewards
         observation = self._get_obs()
         info = self._get_info()
@@ -374,10 +468,21 @@ class TetrisEnv(gym.Env):
                     width=1,
                 )
 
-        def render_tetr(tetromino, surface, cell_size, pos_offset=(0, 0)):
+        def render_tetr(tetromino, surface, cell_size, main_grid=True, pos_offset=(0, 0)):
+            """
+            Function to draw tetrominos on differents grid of gameplay.
+            tetromino: tetromino to draw on surface
+            surface: surface to draw tetromino onto
+            cell_size: size in pixels of single square of a tetromino
+            main_grid: bool to know if drawing tetromino on main grid or reserved/next grid
+            pos_offset: offset in position when drawing on next grid.
+            """
             off_set = 4
             board_position = (0, 0)
-            x, y, _ = tetromino.get_state()
+            if main_grid:
+                x, y, _ = tetromino.get_state()
+            else:
+                x, y = 0, 0
             rows, cols = np.where(tetromino.struct == 1)
             for row, col in zip(rows, cols):
                 pygame.draw.rect(
@@ -389,25 +494,26 @@ class TetrisEnv(gym.Env):
                                      cell_size - off_set + 1)
                 )
 
-        # START OF TESTING #
-        # TODO: delete after finishing the testing
-        a = IBlock()
-        a.move((0, 0))
-        a.rotate(0)
-        b = self.internal_state.next_tetr[0]
-        render_tetr(a, main_grid, self.cell_size)
 
-        for i, tetr in enumerate(self.internal_state.next_tetr):
-            off_set = 3*i * self.cell_size//2
-            render_tetr(tetr, next_grid, self.cell_size//2, (0, off_set))
+        # Render current tetromino
+        playing_tetr = self.internal_state.current_tetr
+        render_tetr(playing_tetr, main_grid, self.cell_size)
 
-        render_tetr(b, reserve_grid, self.cell_size // 2)
-        # END OF TESTING #
+
+        # Render played tetrominoes
+        if self.internal_state.played_tetr:
+            for tetr in self.internal_state.played_tetr:
+                render_tetr(tetr, main_grid, self.cell_size)
+
+        # Render reserved tetromino
+        if self.internal_state.reserved_tetr:
+            render_tetr(self.internal_state.reserved_tetr, reserve_grid, self.cell_size//2, False)
 
         # Render next tetrominoes
         for i, tetr in enumerate(self.internal_state.next_tetr):
             off_set = 3*i * self.cell_size//2
-            render_tetr(tetr, next_grid, self.cell_size//2, (0, off_set))
+            render_tetr(tetr, next_grid, self.cell_size//2, False, (0, off_set))
+
 
         # Finally, add some gridlines
         draw_grid_lines(main_grid, self.cell_size)
@@ -441,5 +547,5 @@ class TetrisEnv(gym.Env):
 
 if __name__ == "__main__":
     env = TetrisEnv(render_mode="rgb_array")
-    mapping = {(pygame.K_RIGHT,): 1, (pygame.K_DOWN,): 2, (pygame.K_LEFT,): 3, (pygame.K_UP,): 4}
+    mapping = {(pygame.K_RIGHT,): 1, (pygame.K_DOWN,): 2, (pygame.K_LEFT,): 99, (pygame.K_a,): 3, (pygame.K_s,): 4}
     play(env, keys_to_action=mapping)
