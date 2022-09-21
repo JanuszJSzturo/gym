@@ -29,7 +29,12 @@ class Action(Enum):
     DROP = 5
     RESERVE = 6
 
-
+# TODO: Comment the code
+# TODO: test the game mechanics
+# TODO: Define reward function
+# TODO: Define observations
+# TODO: implement score system
+# TODO: configure automatic block falling if possible and speed up according lines cleared
 class TetrisState:
     def __init__(self):
         self.reset()
@@ -44,17 +49,26 @@ class TetrisState:
         populate future tetrominoes with 6 random tetromino
         """
         self.board = np.zeros((20, 10))
-        self.current_tetr = Tetromino.make("O")
+        self.current_tetr = Tetromino.make('I')
         self.played_tetr = []
         self.reserved_tetr = None
         self.next_tetr = []
         self.can_reserve = True
 
-        for n in range(6):
-            self.next_tetr.append(Tetromino.make('T'))
+        # for n in range(6):
+        #     self.next_tetr.append(Tetromino.make('T'))
+        self.next_tetr.append(Tetromino.make('O'))
+        self.next_tetr.append(Tetromino.make('T'))
+        self.next_tetr.append(Tetromino.make('I'))
+        self.next_tetr.append(Tetromino.make('T'))
+        self.next_tetr.append(Tetromino.make('I'))
+        self.next_tetr.append(Tetromino.make('I'))
+        self.next_tetr.append(Tetromino.make('I'))
+        self.next_tetr.append(Tetromino.make('I'))
+
 
     def update(self, action):
-        game_over = False
+        over = False
         bottom_reached = False
 
         if action == Action.LEFT.value:
@@ -68,18 +82,33 @@ class TetrisState:
         elif action == Action.ROT_RIGHT.value:
             self.current_tetr.rotate(-1, self.played_tetr)
         elif action == Action.DROP.value:
-            pass
+            self._drop()
+            bottom_reached = True
+        elif action == Action.RESERVE.value:
+            self._reserve()
 
         if bottom_reached:
+            # If current tetromino reached bottom we check line, spawn a new tetromino and check if it is game over
+            self.played_tetr.append(self.current_tetr)
             self._check_line()
-            # If current tetromino reached bottom we spawn a new tetromino and check if it is game over
-            game_over = self._spawn_tetromino()
+            over = self._spawn_tetromino()
+            self.can_reserve = True
 
-        return game_over
+        self._update_board()
+        return over
+    def _update_board(self):
+        temp_board = np.zeros((21, 10))
+        current_struct = np.where(self.current_tetr.struct)
+        current_struct = current_struct[0] + self.current_tetr._y, current_struct[1] + self.current_tetr._x
+        temp_board[current_struct] += 1
+        for tetr in self.played_tetr:
+            temp_struct = np.where(tetr.struct)
+            temp_struct = temp_struct[0] + tetr._y, temp_struct[1] + tetr._x
+            temp_board[temp_struct] += 1
+        self.board = temp_board[:20]
 
     def _spawn_tetromino(self):
-        self.played_tetr.append(self.current_tetr)
-        tetr_name = self.next_tetr.pop().name
+        tetr_name = self.next_tetr.pop(0).name
         self.next_tetr.append(Tetromino.make())
 
         self.current_tetr = Tetromino.make(tetr_name)
@@ -88,13 +117,19 @@ class TetrisState:
         return terminated
 
     def _reserve(self):
-        if self.can_reserve:
-            temp = self.current_tetr
-            self.current_tetr = self.reserved_tetr
-            self.reserved_tetr = temp
-            self.can_reserve = True
+        if self.reserved_tetr is None:
+            self.reserved_tetr = Tetromino.make(self.current_tetr.name)
+            self._spawn_tetromino()
+        elif self.can_reserve:
+            current_tetr_name = self.current_tetr.name
+            self.current_tetr = Tetromino.make(self.reserved_tetr.name)
+            self.reserved_tetr = Tetromino.make(current_tetr_name)
+        self.can_reserve = False
 
-    # TODO finish check line
+    def _drop(self):
+        bottom_reached = False
+        while not bottom_reached:
+            bottom_reached = self.current_tetr.move((0, 1), self.played_tetr)
 
     def _check_line(self):
         """
@@ -105,18 +140,45 @@ class TetrisState:
             2.2. If any row of the tetr is equal to the row affected we change the 1's to 0's in the tetr struct
         3. We need to move down each tetromino accordingly
         """
-        a = self.board.sum(axis=1)
-        affected_rows = np.where(a == 10)
-        print(affected_rows)
+        # List of tetrominoes that have to be removed when line is cleared
+        tetr_to_remove = []
+
+        # Check full rows
+        board = self.get_board()
+        affected_rows = np.where(board.sum(axis=1) == 10)[0]
+        # Do nothing if there are no full lines
         if affected_rows.size != 0:
             for row in affected_rows:
-                print(row)
-                for tetr in self.played_tetr:
-                    tetr_struct = np.where(tetr.struct)
-                    tetr_struct_shifted = tetr_struct[0] + tetr._y, tetr_struct[1] + tetr._x
-                    if np.any(tetr_struct_shifted[0] == row):
-                        tetr.struct[tetr_struct[1]] = 0
+                # Get all Tetrominoes that are affected by the row clear
+                affected_tetr = TetrisState._tetr_in_row(self.played_tetr, row)
+                for tetr in affected_tetr:
+                    # Delete de row of the struct affected
+                    tetr.struct = np.delete(tetr.struct, row-tetr._y, 0)
+                    # If the struct is empty or all 0 we mark the piece to delete
+                    if not tetr.struct.any():
+                        tetr_to_remove.append(tetr)
+                # Remove the marked pieces to remove from played tetrominoes and clear the list
+                if tetr_to_remove:
+                    for tetr in tetr_to_remove:
+                        self.played_tetr.remove(tetr)
+                    tetr_to_remove.clear()
 
+                # Update the position for the affected tetrominoes by the line clear, i.e. all above the row.
+                for tetr in self.played_tetr:
+                    rows, _ = np.where(tetr.struct == 1)
+                    real_y = tetr._y + min(rows)
+                    if real_y <= row:
+                        tetr.move((0, 1), self.played_tetr)
+
+    @staticmethod
+    def _tetr_in_row(tetrominoes, row):
+        affected_tetr = []
+        for tetr in tetrominoes:
+            tetr_struct = np.where(tetr.struct)
+            tetr_struct_shifted = tetr_struct[0] + tetr._y, tetr_struct[1] + tetr._x
+            if np.any(tetr_struct_shifted[0] == row):
+                affected_tetr.append(tetr)
+        return affected_tetr
 
     def get_board(self):
         return self.board
@@ -128,6 +190,7 @@ class TetrisState:
 class Tetromino:
     def __init__(self):
         self._rotation_state = 0
+        self.struct = self.struct
 
     @staticmethod
     def make(name=None):
@@ -154,6 +217,13 @@ class Tetromino:
         pool = (IBlock(), LBlock(), JBlock(), SBlock(), ZBlock(), OBlock(), TBlock())
         tetromino = random.choice(pool)
         return tetromino
+    @staticmethod
+    def remove_empty_rows(struct_array):
+        new_array = np.copy(struct_array)
+        rows, _ = np.where(new_array == 1)
+        y_offset = min(rows)
+        new_array = new_array[~np.all(new_array == 0, axis=1)]
+        return new_array, y_offset
 
     def collision(self, others):
         """
@@ -174,6 +244,8 @@ class Tetromino:
         current_struct = current_struct[0] + self._y, current_struct[1] + self._x
         temp_board[current_struct] += 1
         for other in others:
+            if other == self:
+                continue
             temp_struct = np.where(other.struct)
             temp_struct = temp_struct[0] + other._y, temp_struct[1] + other._x
             temp_board[temp_struct] += 1
@@ -183,7 +255,6 @@ class Tetromino:
         return False
 
     def rotate(self, rot_direction, collision_group):
-        # TODO: Configure rotate with the new class of Tetromino
         """
         rot_direction = 1 or -1 to rotate left or right respectively
         self.struct = np.rot90(self.struct, k=rotation)
@@ -213,7 +284,6 @@ class Tetromino:
                 self._y -= move_y
                 if not Tetromino.collision(self, collision_group):
                     valid = True
-                    print("Wall kick performed: ", move_x, move_y)
                     break
                 else:
                     self._x -= move_x
@@ -240,6 +310,13 @@ class Tetromino:
 
     def get_state(self):
         return self._x, self._y, self._rotation_state
+
+    def update_struct(self, row):
+        self.struct[np.all(self.struct == 0, axis=1)].shape
+        new_struct = self.struct
+        new_struct = np.delete(new_struct, row, 0)
+
+        return new_struct
 
 
 class IBlock(Tetromino):
@@ -359,7 +436,6 @@ class TetrisEnv(gym.Env):
         # Observations are dictionaries with the agent's and the target's location.
         # Each location is encoded as an element of {0, ..., `size`}^2, i.e. MultiDiscrete([size, size]).
 
-        # TODO Check if it is correctly defined
         self.observation_space = spaces.Dict(
             {
                 "main_board": spaces.MultiBinary([20, 10]),
@@ -368,8 +444,7 @@ class TetrisEnv(gym.Env):
             }
         )
 
-        # TODO Check if it is correctly defined
-        # We have 6 actions, corresponding to "left", "right", "down", "rotate_left", "rotate_right", "drop", "reserve"
+        # We have 7 actions, corresponding to "left", "right", "down", "rotate_left", "rotate_right", "drop", "reserve"
         self.action_space = spaces.Discrete(7)
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
@@ -547,5 +622,11 @@ class TetrisEnv(gym.Env):
 
 if __name__ == "__main__":
     env = TetrisEnv(render_mode="rgb_array")
-    mapping = {(pygame.K_RIGHT,): 1, (pygame.K_DOWN,): 2, (pygame.K_LEFT,): 99, (pygame.K_a,): 3, (pygame.K_s,): 4}
+    mapping = {(pygame.K_RIGHT,): 1,
+               (pygame.K_DOWN,): 2,
+               (pygame.K_LEFT,): 99,
+               (pygame.K_a,): 3,
+               (pygame.K_s,): 4,
+               (pygame.K_UP,): 5,
+               (pygame.K_r,): 6}
     play(env, keys_to_action=mapping)
