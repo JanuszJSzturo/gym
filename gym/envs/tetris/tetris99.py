@@ -22,13 +22,25 @@ WALL_KICKS_I = ([[[(-2, 0), (1, 0), (-2, -1), (1, 2)], [(-1, 0), (2, 0), (-1, 2)
 
 class Action(Enum):
     # Change to another number for human player as 0 is active if no key is pressed
-    LEFT = 99
+    LEFT = 0
     RIGHT = 1
     DOWN = 2
     ROT_LEFT = 3
     ROT_RIGHT = 4
     DROP = 5
     RESERVE = 6
+
+
+class BlockID(Enum):
+    I = 0
+    O = 1
+    L = 2
+    J = 3
+    S = 4
+    Z = 5
+    T = 6
+
+
 
 # TODO: Comment the code
 # TODO: test the game mechanics
@@ -61,10 +73,11 @@ class TetrisState:
         self.lines = 0
         self.score = 0
         self.pieces_placed = 0
-        # testing editing from github
+
 
         self.actions_done = np.zeros(100)
-        self.piece_epoch = 0
+        self.current_piece_num_actions = 0
+        self.last_piece_num_actions = 0
 
         for n in range(6):
             self.next_tetr.append(Tetromino.make())
@@ -72,6 +85,7 @@ class TetrisState:
     def update(self, action):
         over = False
         bottom_reached = False
+        lines_cleared = 0
         dt = time.time()-self.time
 
         if action == Action.LEFT.value:
@@ -95,27 +109,27 @@ class TetrisState:
             bottom_reached = self.current_tetr.move((0, 1), self.played_tetr)
             self.time = time.time()
 
-        if action != 0:
-            if len(self.actions_done) <= self.piece_epoch:
-                print(f'Piece dropped due to surpass maximum actions permited: {len(self.actions_done)}')
-                self._drop()
-                bottom_reached = True
-            else:
-                self.actions_done[self.piece_epoch] = action
-                self.piece_epoch += 1
+        # if action != 0:
+        if len(self.actions_done) <= self.current_piece_num_actions:
+            print(f'Piece dropped due to surpass maximum actions permited: {len(self.actions_done)}')
+            self._drop()
+            bottom_reached = True
+        else:
+            self.actions_done[self.current_piece_num_actions] = action
+            self.current_piece_num_actions += 1
 
         if bottom_reached:
             # If current tetromino reached bottom we check line, spawn a new tetromino and check if it is game over
             self.pieces_placed += 1
             self.played_tetr.append(self.current_tetr)
-            self._check_line()
+            lines_cleared = self._check_line()
             over = self._spawn_tetromino()
             self.can_reserve = True
 
         self._update_board()
         if over:
             print(self.score, self.lines, self.pieces_placed)
-        return over, bottom_reached
+        return over, bottom_reached, lines_cleared
     def _update_board(self):
         temp_board = np.zeros((21, 10))
         current_struct = np.where(self.current_tetr.struct)
@@ -129,7 +143,8 @@ class TetrisState:
 
     def _spawn_tetromino(self):
         self.actions_done = np.zeros(100)
-        self.piece_epoch = 0
+        self.last_piece_num_actions = self.current_piece_num_actions
+        self.current_piece_num_actions = 0
         tetr_name = self.next_tetr.pop(0).name
         self.next_tetr.append(Tetromino.make())
 
@@ -193,6 +208,7 @@ class TetrisState:
                     real_y = tetr._y + min(rows)
                     if real_y <= row:
                         tetr.move((0, 1), self.played_tetr)
+        return affected_rows.size
 
     @staticmethod
     def _tetr_in_row(tetrominoes, row):
@@ -208,13 +224,18 @@ class TetrisState:
         return self.board
 
     def get_reserved(self):
-        return self.reserved_tetr
+        if self.reserved_tetr is None:
+            return None
+        return self.reserved_tetr.name.value
 
     def get_next_tetrominoes(self):
-        return self.reserved_tetr
+        next_tetr = np.zeros_like(self.next_tetr)
+        for i, tetr in enumerate(self.next_tetr):
+            next_tetr[i] = tetr.name.value
+        return next_tetr
 
     def get_current_tetromino(self):
-        return self.current_tetr
+        return self.current_tetr.name.value
 
     def get_total_lines_cleared(self):
         return self.lines
@@ -224,6 +245,12 @@ class TetrisState:
 
     def get_pieces_placed(self):
         return self.pieces_placed
+
+    def get_actions(self):
+        return self.actions_done
+
+    def get_num_actions(self):
+        return self.last_piece_num_actions
 
 
 class Tetromino:
@@ -365,7 +392,7 @@ class IBlock(Tetromino):
          (0, 0, 0, 0))
     )
     color = (0, 168, 221)
-    name = 'I'
+    name = BlockID.I
     rotations = 4
     _x = 3
     _y = -1
@@ -378,7 +405,7 @@ class LBlock(Tetromino):
          (0, 0, 0))
     )
     color = (237, 96, 0)
-    name = 'L'
+    name = BlockID.L
     rotations = 4
     _x = 3
     _y = -1
@@ -391,7 +418,7 @@ class JBlock(Tetromino):
          (0, 0, 0))
     )
     color = (41, 18, 245)
-    name = 'J'
+    name = BlockID.J
     rotations = 4
     _x = 3
     _y = -1
@@ -403,7 +430,7 @@ class OBlock(Tetromino):
          (1, 1))
     )
     color = (222, 165, 0)
-    name = 'O'
+    name = BlockID.O
     rotations = 0
     _x = 4
     _y = -1
@@ -416,7 +443,7 @@ class SBlock(Tetromino):
          (0, 0, 0))
     )
     color = (82, 226, 0)
-    name = 'S'
+    name = BlockID.S
     rotations = 4
     _x = 3
     _y = -1
@@ -429,7 +456,7 @@ class TBlock(Tetromino):
          (0, 0, 0))
     )
     color = (168, 23, 236)
-    name = 'T'
+    name = BlockID.T
     rotations = 4
     _x = 3
     _y = -1
@@ -442,12 +469,12 @@ class ZBlock(Tetromino):
          (0, 0, 0))
     )
     color = (249, 38, 52)
-    name = 'Z'
+    name = BlockID.Z
     rotations = 4
     _x = 3
     _y = -1
 
-
+# Piece not in use
 class DotBlock(Tetromino):
     struct = np.array(
         ((0, 0, 0),
@@ -506,7 +533,7 @@ class TetrisEnv(gym.Env):
     def _get_info(self):
         return {"total_lines_cleared": self.internal_state.get_total_lines_cleared(),
                 "score": self.internal_state.get_score(),
-                "bottom_reached": self.internal_state.get_bottom_reached()}
+                "num_actions": self.internal_state.get_num_actions()}
 
     def reset(self, seed=None, options=None):
         # We need the following line to seed self.np_random
@@ -523,18 +550,25 @@ class TetrisEnv(gym.Env):
         return observation, info
 
     def step(self, action):
-        # Map the action (element of {0,1,2,3}) to the direction we walk in
-
-        # self.internal_state.update(action)
-
         # TODO define "terminated", "reward", "observation" and "info"
-        terminated = self.internal_state.update(action)
-        reward = 1 if terminated else 0  # Binary sparse rewards
+        # Process the step
+        terminated, bottom_reached, lines_cleared = self.internal_state.update(action)
+
+        # Get the observation and info of new state
         observation = self._get_obs()
         info = self._get_info()
 
+        # Calculate the reward
+        reward = 0
+        if bottom_reached:
+            actions_taken = info["num_actions"]
+            if actions_taken == 0:
+                actions_taken = 100
+            reward = 1 - 0.01*actions_taken + lines_cleared*4
+
         if self.render_mode == "human":
             self._render_frame()
+        print(observation)
 
         return observation, reward, terminated, False, info
 
@@ -665,7 +699,7 @@ if __name__ == "__main__":
     env = TetrisEnv(render_mode="rgb_array")
     mapping = {(pygame.K_RIGHT,): 1,
                (pygame.K_DOWN,): 2,
-               (pygame.K_LEFT,): 99,
+               (pygame.K_LEFT,): 0,
                (pygame.K_a,): 3,
                (pygame.K_s,): 4,
                (pygame.K_UP,): 5,

@@ -6,6 +6,7 @@ import base64, io, os, time, gym
 from gym.envs.tetris import tetris99
 import functools
 import time
+from keras.utils import to_categorical
 
 # import tensorflow_probability as tfp
 # import mitdeeplearning as mdl
@@ -19,3 +20,4 @@ if gpus:
 env = tetris99.TetrisEnv()
 
 print(env.observation_space.sample())
+

@@ -17,7 +17,6 @@ if gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
 
 env = tetris99.TetrisEnv()
-env.seed(1)
 n_observations = env.observation_space
 print("Environment has observation space =", n_observations)
 n_actions = env.action_space.n
