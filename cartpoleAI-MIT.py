@@ -3,7 +3,6 @@ import numpy as np
 import matplotlib, cv2
 import matplotlib.pyplot as plt
 import base64, io, os, time, gym
-from gym.envs.tetris import tetris99
 import functools
 import time
 
@@ -16,7 +15,7 @@ if gpus:
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
 
-env = tetris99.TetrisEnv()
+env = gym.make("CartPole-v1")
 n_observations = env.observation_space
 print("Environment has observation space =", n_observations)
 n_actions = env.action_space.n
@@ -53,9 +52,7 @@ cartpole_model = create_cartpole_model()
 #   action: choice of agent action
 def choose_action(model, observation, single=True):
     # add batch dimension to the observation if only a single example was provided
-    print (observation.shape)
     observation = np.expand_dims(observation, axis=0) if single else observation
-    print(observation.shape)
     '''TODO: feed the observations through the model to predict the log probabilities of each possible action.'''
     logits = model.predict(observation)
 

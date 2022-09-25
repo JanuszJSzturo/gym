@@ -6,7 +6,7 @@ import pygame
 import numpy as np
 from gym.utils.play import play
 import copy
-from enum import Enum, auto
+from enum import Enum
 import time
 
 WALL_KICKS_JLTSZ = ([[[(-1, 0), (-1, 1), (0, -2), (-1, -2)], [(1, 0), (1, 1), (0, -2), (1, -2)]],
@@ -32,13 +32,13 @@ class Action(Enum):
 
 
 class BlockID(Enum):
-    I = 0
-    O = 1
-    L = 2
-    J = 3
-    S = 4
-    Z = 5
-    T = 6
+    I = 1
+    O = 2
+    L = 3
+    J = 4
+    S = 5
+    Z = 6
+    T = 7
 
 
 
@@ -127,6 +127,10 @@ class TetrisState:
             self.can_reserve = True
 
         self._update_board()
+
+        if self.lines >= 100:
+            print("Reached 100 lines cleared")
+            over = True
         if over:
             print(self.score, self.lines, self.pieces_placed)
         return over, bottom_reached, lines_cleared
@@ -225,7 +229,7 @@ class TetrisState:
 
     def get_reserved(self):
         if self.reserved_tetr is None:
-            return None
+            return 0
         return self.reserved_tetr.name.value
 
     def get_next_tetrominoes(self):
@@ -235,6 +239,8 @@ class TetrisState:
         return next_tetr
 
     def get_current_tetromino(self):
+        if self.current_tetr is None:
+            return 0
         return self.current_tetr.name.value
 
     def get_total_lines_cleared(self):
@@ -264,32 +270,33 @@ class Tetromino:
         Returns a tetromino of type "name" or random tetromino if name is not specified
         name: name of the type of tetromino desired if None, random type is returned
         """
-        if name == 'J':
+        if name == BlockID.J:
             return JBlock()
-        elif name == 'S':
+        elif name == BlockID.S:
             return SBlock()
-        elif name == 'I':
+        elif name == BlockID.I:
             return IBlock()
-        elif name == 'L':
+        elif name == BlockID.L:
             return LBlock()
-        elif name == 'Z':
+        elif name == BlockID.Z:
             return ZBlock()
-        elif name == 'O':
+        elif name == BlockID.O:
             return OBlock()
-        elif name == 'T':
+        elif name == BlockID.T:
             return TBlock()
 
         # If none type specified returns a random tetromino
         pool = (IBlock(), LBlock(), JBlock(), SBlock(), ZBlock(), OBlock(), TBlock())
         tetromino = random.choice(pool)
         return tetromino
-    @staticmethod
-    def remove_empty_rows(struct_array):
-        new_array = np.copy(struct_array)
-        rows, _ = np.where(new_array == 1)
-        y_offset = min(rows)
-        new_array = new_array[~np.all(new_array == 0, axis=1)]
-        return new_array, y_offset
+
+    # @staticmethod
+    # def remove_empty_rows(struct_array):
+    #     new_array = np.copy(struct_array)
+    #     rows, _ = np.where(new_array == 1)
+    #     y_offset = min(rows)
+    #     new_array = new_array[~np.all(new_array == 0, axis=1)]
+    #     return new_array, y_offset
 
     def collision(self, others):
         """
@@ -505,7 +512,8 @@ class TetrisEnv(gym.Env):
             {
                 "main_board": spaces.MultiBinary([20, 10]),
                 "next_board": spaces.MultiDiscrete([7, 7, 7, 7, 7, 7]),
-                "reserved_board": spaces.Discrete(7)
+                "reserved_board": spaces.Discrete(7),
+                "current_piece": spaces.Discrete(7)
             }
         )
 
@@ -528,7 +536,8 @@ class TetrisEnv(gym.Env):
     def _get_obs(self):
         return {"main_board": self.internal_state.get_board(),
                 "next_board": self.internal_state.get_next_tetrominoes(),
-                "reserved_board": self.internal_state.get_reserved()}
+                "reserved_board": self.internal_state.get_reserved(),
+                "current_piece": self.internal_state.get_current_tetromino()}
 
     def _get_info(self):
         return {"total_lines_cleared": self.internal_state.get_total_lines_cleared(),
@@ -568,7 +577,6 @@ class TetrisEnv(gym.Env):
 
         if self.render_mode == "human":
             self._render_frame()
-        print(observation)
 
         return observation, reward, terminated, False, info
 
