@@ -1,1 +1,1 @@
-from gym.envs.tetris import tetris99
+from gym.envs.tetris.tetris99 import TetrisEnv
