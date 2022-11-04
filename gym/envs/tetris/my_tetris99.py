@@ -73,21 +73,25 @@ class TetrisState:
         bottom_reached = False
         lines_cleared = 0
         dt = time.time()-self.time
+        try:
+            action = Action(action)
+        except ValueError:
+            action = None
 
-        if action == Action.LEFT.value:
+        if action == Action.LEFT:
             bottom_reached = self.current_tetr.move((-1, 0), self.played_tetr)
-        elif action == Action.RIGHT.value:
+        elif action == Action.RIGHT:
             bottom_reached = self.current_tetr.move((1, 0), self.played_tetr)
-        elif action == Action.DOWN.value:
+        elif action == Action.DOWN:
             bottom_reached = self.current_tetr.move((0, 1), self.played_tetr)
-        elif action == Action.ROT_LEFT.value:
+        elif action == Action.ROT_LEFT:
             self.current_tetr.rotate(1, self.played_tetr)
-        elif action == Action.ROT_RIGHT.value:
+        elif action == Action.ROT_RIGHT:
             self.current_tetr.rotate(-1, self.played_tetr)
-        elif action == Action.DROP.value:
+        elif action == Action.DROP:
             self._drop()
             bottom_reached = True
-        elif action == Action.RESERVE.value:
+        elif action == Action.RESERVE:
             self._reserve()
 
         # TODO: how should be the priority in gravity over actions?
@@ -100,8 +104,8 @@ class TetrisState:
             print(f'Piece dropped due to surpass maximum actions permited: {len(self.actions_done)}')
             self._drop()
             bottom_reached = True
-        else:
-            self.actions_done[self.current_piece_num_actions] = action
+        elif action is not None:
+            self.actions_done[self.current_piece_num_actions] = action.value
             self.current_piece_num_actions += 1
 
         if bottom_reached:
@@ -581,7 +585,98 @@ class DotBlock(Tetromino):
     _y = -1
 
 
+''' Plan movement based on tetris state
+INPUT:
+    - int: column of the board (x-position i.e. top-left cell x-position)
+    - int: rotation state of the piece
+
+OUTPUT:
+    - list of movements to achieve desired position
+
+INITIAL APPROACH 
+    - rotate piece to desired rotation of the piece
+    - move along x axis
+    - drop piece
+    ASSUMPTIONS MADE:
+    - Piece will not be blocked when droped from any y-position and will get to the desired y-position
+    - Piece will not perform a wall-kick in the initial rotation
+
+'''
+
+
+def movement_planning(tetr: Tetromino, x_pos: int, rot_state: int):
+    movements = []
+    rotations = rot_state - tetr._rotation_state
+    movements.extend([Action.ROT_RIGHT] * rotations)
+    position = x_pos - tetr._x
+    if position > 0:
+        movements.extend([Action.RIGHT] * position)
+    elif position < 0:
+        movements.extend([Action.LEFT] * np.abs(position))
+    movements.append(Action.DROP)
+    return movements
+
+class MyGUI:
+    def __init__(self):
+        self.state = TetrisState()
+        self.cell_size = 32
+        self.height = 23
+        self.width = 18
+        self.window_size = np.array((self.width * self.cell_size, self.height * self.cell_size))
+        self.game_over = False
+        self.action = None
+
+        pygame.init()
+        pygame.display.init()
+        self.window = pygame.display.set_mode(self.window_size)
+        self.canvas = pygame.Surface(self.window_size)
+
+    def run(self):
+        while not self.game_over:
+            self.process_input()
+            self.update()
+            self.render()
+
+    def process_input(self):
+        self.action = None
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.game_over = True
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    self.game_over = True
+                elif event.key == pygame.K_a:
+                    self.action = Action.LEFT.value
+                elif event.key == pygame.K_d:
+                    self.action = Action.RIGHT.value
+                elif event.key == pygame.K_s:
+                    self.action = Action.DOWN.value
+                elif event.key == pygame.K_w:
+                    self.action = Action.DROP.value
+                elif event.key == pygame.K_j:
+                    self.action = Action.ROT_LEFT
+                elif event.key == pygame.K_k:
+                    self.action = Action.ROT_RIGHT
+
+    def update(self):
+        x_pos = np.random.choice(range(10))
+        rot_state = np.random.choice(range(4))
+        print(f'Position: {x_pos}, rotation: {rot_state}')
+        movements = movement_planning(self.state.current_tetr, x_pos, rot_state)
+        print(movements)
+        for move in movements:
+            self.game_over, _, _ = self.state.update(move.value)
+
+    def render(self):
+        self.canvas.fill((0, 0, 0))
+        self.canvas = self.state.render_frame(self.canvas, self.cell_size)
+        self.window.blit(self.canvas, self.canvas.get_rect())
+        pygame.event.pump()
+        pygame.display.update()
+
 
 
 if __name__ == '__main__':
-    pass
+    game = MyGUI()
+    game.run()
+    pygame.quit()
