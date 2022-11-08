@@ -375,8 +375,8 @@ class Tetromino:
             return TBlock()
 
         # If none type specified returns a random tetromino
-        pool = (IBlock(), LBlock(), JBlock(), SBlock(), ZBlock(), OBlock(), TBlock())
-        tetromino = random.choice(pool)
+        pool = (IBlock, LBlock, JBlock, SBlock, ZBlock, OBlock, TBlock)
+        tetromino = random.choice(pool)()
         return tetromino
 
     # @staticmethod
@@ -387,17 +387,31 @@ class Tetromino:
     #     new_array = new_array[~np.all(new_array == 0, axis=1)]
     #     return new_array, y_offset
 
+    @property
+    def left(self):
+        _, cols = np.where(self.struct == 1)
+        return self._x + min(cols)
+
+    @property
+    def right(self):
+        _, cols = np.where(self.struct == 1)
+        return self._x + max(cols)
+
+    @property
+    def top(self):
+        rows, _ = np.where(self.struct == 1)
+        return self._y + min(rows)
+
+    @property
+    def bot(self):
+        rows, _ = np.where(self.struct == 1)
+        return self._y + max(rows)
+
     def collision(self, others):
         """
         Return True if a tetromino collides with other in others, else return False
         """
-        rows, cols = np.where(self.struct == 1)
-        left = self._x + min(cols)
-        right = self._x + max(cols)
-        top = self._y + min(rows)
-        bot = self._y + max(rows)
-
-        if left < 0 or right > 9 or bot > 19:
+        if self.left < 0 or self.right > 9 or self.bot > 19:
             return True
 
         # Array that will be populated with all tetrominoes
@@ -432,9 +446,10 @@ class Tetromino:
 
         starting_rotation_state = copy.copy(self._rotation_state)
         rotation_direction = (rot_direction + 1) // 2  # 0-> clockwise, 1-> counter-clockwise"
-        self.struct = np.rot90(self.struct, k=rot_direction)
+        self.struct = np.rot90(self.struct, k=rot_direction)  # np.rot90 k>0 counter-clockwise, k<0 clockwise
         self._rotation_state = (self._rotation_state - rot_direction) % 4
-
+        if collision_group is None:
+            return
         if Tetromino.collision(self, collision_group):
             valid = False
         else:
@@ -605,16 +620,19 @@ INITIAL APPROACH
 
 
 def movement_planning(tetr: Tetromino, x_pos: int, rot_state: int):
+    ghost_tetr = Tetromino.make(tetr.name)
     movements = []
     rotations = rot_state - tetr._rotation_state
     movements.extend([Action.ROT_RIGHT] * rotations)
-    position = x_pos - tetr._x
+    ghost_tetr.rotate(-rotations, None)
+    position = x_pos - ghost_tetr.left
     if position > 0:
         movements.extend([Action.RIGHT] * position)
     elif position < 0:
         movements.extend([Action.LEFT] * np.abs(position))
     movements.append(Action.DROP)
     return movements
+
 
 class MyGUI:
     def __init__(self):
@@ -625,6 +643,8 @@ class MyGUI:
         self.window_size = np.array((self.width * self.cell_size, self.height * self.cell_size))
         self.game_over = False
         self.action = None
+        self.clock = pygame.time.Clock()
+        self.next = True
 
         pygame.init()
         pygame.display.init()
@@ -634,11 +654,13 @@ class MyGUI:
     def run(self):
         while not self.game_over:
             self.process_input()
-            self.update()
+            if self.next:
+                self.update()
             self.render()
 
     def process_input(self):
         self.action = None
+        self.next = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.game_over = True
@@ -657,11 +679,14 @@ class MyGUI:
                     self.action = Action.ROT_LEFT
                 elif event.key == pygame.K_k:
                     self.action = Action.ROT_RIGHT
+                elif event.key == pygame.K_SPACE:
+                    self.next = True
 
     def update(self):
         x_pos = np.random.choice(range(10))
-        rot_state = np.random.choice(range(4))
-        print(f'Position: {x_pos}, rotation: {rot_state}')
+        rot_state =  np.random.choice(range(4))
+        print(f'Start position: {self.state.current_tetr._x}, start rotation: {self.state.current_tetr._rotation_state}')
+        print(f'End Position: {x_pos}, end   rotation: {rot_state}')
         movements = movement_planning(self.state.current_tetr, x_pos, rot_state)
         print(movements)
         for move in movements:
@@ -673,7 +698,6 @@ class MyGUI:
         self.window.blit(self.canvas, self.canvas.get_rect())
         pygame.event.pump()
         pygame.display.update()
-
 
 
 if __name__ == '__main__':
