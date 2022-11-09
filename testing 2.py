@@ -33,7 +33,7 @@ def choose_action(model, observation, single=True):
 
 
     '''TODO: feed the observations through the model to predict the log probabilities of each possible action.'''
-    logits = model.predict(observation)
+    logits = model.predict(observation, verbose=0)
 
     '''TODO: Choose an action from the categorical distribution defined by the log 
        probabilities of each possible action.'''
@@ -74,7 +74,8 @@ class Memory:
 
     # Resets/restarts the memory buffer
     def clear(self):
-        self.observations = []
+        self.observations1 = []
+        self.observations2 = []
         self.actions = []
         self.rewards = []
 
@@ -83,7 +84,8 @@ class Memory:
         main_board = new_observation["main_board"]
         current_hold_next = to_categorical(np.concatenate((new_observation["current_piece"], new_observation["reserved_board"], new_observation["next_board"]),axis=None), num_classes=8).flatten()
         observation = list((main_board, current_hold_next))
-        self.observations.append(observation)
+        self.observations1.append(main_board)
+        self.observations2.append(current_hold_next)
         # Update the list of actions with new action
         self.actions.append(new_action)
 
@@ -112,13 +114,15 @@ def compute_loss(logits, actions, rewards):
 
 
 # Training step (forward and backpropagation)
-def train_step(model, loss_function, optimizer, observations, actions, discounted_rewards, custom_fwd_fn=None):
+def train_step(model, loss_function, optimizer, observations1, observations2, actions, discounted_rewards, custom_fwd_fn=None):
     with tf.GradientTape() as tape:
         # Forward propagate through the agent network
         if custom_fwd_fn is not None:
-            prediction = custom_fwd_fn(observations)
+            prediction = custom_fwd_fn([observations1, observations2])
         else:
-            prediction = model.predict(observations)
+            prediction = model([observations1, observations2])
+            # prediction = model.predict({"main_board": observations1, "current_hold_next_input": observations2})
+            #prediction = model.predict(list((observations[:, 0], observations[:, 1])))
 
         '''TODO: call the compute_loss function to compute the loss'''
         loss = loss_function(prediction, actions, discounted_rewards)
@@ -144,7 +148,8 @@ env = tetris99.TetrisEnv(render_mode="human")
 # env = gym.make("CartPole-v1")
 n_observations = env.observation_space
 n_actions = env.action_space.n
-
+columns = 10
+rotations = 4
 
 # Define the Tetris agent
 # Defines a feed-forward neural network
@@ -170,10 +175,13 @@ def create_tetris_model_v0():
     x = tf.keras.layers.Dense(128, activation="relu")(x)
     x = tf.keras.layers.Dense(64, activation="relu")(x)
     critic_output = tf.keras.layers.Dense(units=n_actions, activation=None)(x)
+    position_output = tf.keras.layers.Dense(units=columns, activation=None)(x)
+    rotation_output = tf.keras.layers.Dense(units=rotations, activation=None)(x)
 
     model = tf.keras.Model(
         inputs=[main_grid_input, current_hold_next_input],
         outputs=critic_output
+        # outputs=[position_output, rotation_output]
     )
     model.summary()
     # model = tf.keras.models.Sequential([
@@ -214,7 +222,8 @@ for i_episode in range(episodes):
             # initiate training - remember we don't know anything about how the
             #   agent is doing until it has crashed!
             train_step(tetris_model, compute_loss, optimizer,
-                       observations=np.vstack(memory.observations),
+                       observations1=np.array(memory.observations1),
+                       observations2=np.array(memory.observations2),
                        actions=np.array(memory.actions),
                        discounted_rewards=discount_rewards(memory.rewards))
 
