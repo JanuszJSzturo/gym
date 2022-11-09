@@ -7,7 +7,6 @@ from gym.envs.tetris import tetris99
 import functools
 import time
 from keras.utils import to_categorical
-
 # import tensorflow_probability as tfp
 # import mitdeeplearning as mdl
 

@@ -1,14 +1,10 @@
-import random
-
 import gym
 from gym import spaces
 import pygame
 import numpy as np
 from gym.utils.play import play
-import copy
-from enum import Enum
-import time
-import my_tetris99
+from gym.envs.tetris import my_tetris99
+
 
 class TetrisEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 24}
