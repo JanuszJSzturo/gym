@@ -337,6 +337,19 @@ class TetrisState:
 
         return canvas
 
+    def movement_planning(self, x_pos: int, rot_state: int):
+        ghost_tetr = Tetromino.make(self.current_tetr.name)
+        movements = []
+        rotations = rot_state - self.current_tetr._rotation_state
+        movements.extend([Action.ROT_RIGHT] * rotations)
+        ghost_tetr.rotate(-rotations, None)
+        position = x_pos - ghost_tetr.left
+        if position > 0:
+            movements.extend([Action.RIGHT] * position)
+        elif position < 0:
+            movements.extend([Action.LEFT] * np.abs(position))
+        movements.append(Action.DROP)
+        return movements
 
 class BlockID(Enum):
     I = 1
@@ -619,19 +632,7 @@ INITIAL APPROACH
 '''
 
 
-def movement_planning(tetr: Tetromino, x_pos: int, rot_state: int):
-    ghost_tetr = Tetromino.make(tetr.name)
-    movements = []
-    rotations = rot_state - tetr._rotation_state
-    movements.extend([Action.ROT_RIGHT] * rotations)
-    ghost_tetr.rotate(-rotations, None)
-    position = x_pos - ghost_tetr.left
-    if position > 0:
-        movements.extend([Action.RIGHT] * position)
-    elif position < 0:
-        movements.extend([Action.LEFT] * np.abs(position))
-    movements.append(Action.DROP)
-    return movements
+
 
 
 class MyGUI:
@@ -684,10 +685,10 @@ class MyGUI:
 
     def update(self):
         x_pos = np.random.choice(range(10))
-        rot_state =  np.random.choice(range(4))
+        rot_state = np.random.choice(range(4))
         print(f'Start position: {self.state.current_tetr._x}, start rotation: {self.state.current_tetr._rotation_state}')
         print(f'End Position: {x_pos}, end   rotation: {rot_state}')
-        movements = movement_planning(self.state.current_tetr, x_pos, rot_state)
+        movements = self.state.movement_planning(x_pos, rot_state)
         print(movements)
         for move in movements:
             self.game_over, _, _ = self.state.update(move.value)

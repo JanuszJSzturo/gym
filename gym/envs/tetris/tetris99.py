@@ -79,12 +79,9 @@ class TetrisEnv(gym.Env):
         info = self._get_info()
 
         # Calculate the reward
-        reward = 0
-        if bottom_reached:
-            actions_taken = info["num_actions"]
-            if actions_taken == 0:
-                actions_taken = 100
-            reward = 1 - 0.01*actions_taken + lines_cleared*4
+        reward = 0.0
+        if terminated:
+            reward = self.internal_state.score + self.internal_state.pieces_placed**2
 
         if self.render_mode == "human":
             self._render_frame()

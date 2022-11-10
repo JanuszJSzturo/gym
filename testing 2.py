@@ -31,15 +31,17 @@ def choose_action(model, observation, single=True):
 
     observation = list((main_board, current_hold_next))
 
-
     '''TODO: feed the observations through the model to predict the log probabilities of each possible action.'''
-    logits = model.predict(observation, verbose=0)
+    logits_pos, logits_rot = model.predict(observation, verbose=0)
 
     '''TODO: Choose an action from the categorical distribution defined by the log 
        probabilities of each possible action.'''
-    action = tf.random.categorical(logits, num_samples=1)
-    action = action.numpy().flatten()
-    return action[0] if single else action
+    pos = tf.random.categorical(logits_pos, num_samples=1)
+    rot = tf.random.categorical(logits_rot, num_samples=1)
+    pos = pos.numpy().flatten()
+    rot = rot.numpy().flatten()
+
+    return [pos[0], rot[0]] if single else [pos, rot]
 
 
 # Reward function #
@@ -106,10 +108,11 @@ def compute_loss(logits, actions, rewards):
     Returns:
         loss
     """
-    neg_logprob = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=actions)
+    neg_logprob1 = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits[0], labels=actions[:, 0])
+    neg_logprob2 = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits[1], labels=actions[:, 1])
 
     # Scale the negative log probability by the rewards
-    loss = tf.reduce_mean(neg_logprob * rewards)
+    loss = tf.reduce_mean((neg_logprob1+neg_logprob2) * rewards)
     return loss
 
 
@@ -180,8 +183,8 @@ def create_tetris_model_v0():
 
     model = tf.keras.Model(
         inputs=[main_grid_input, current_hold_next_input],
-        outputs=critic_output
-        # outputs=[position_output, rotation_output]
+        # outputs=critic_output
+        outputs=[position_output, rotation_output]
     )
     model.summary()
     # model = tf.keras.models.Sequential([
@@ -202,7 +205,7 @@ optimizer = tf.keras.optimizers.Adam(learning_rate)
 # instantiate Tetris agent
 tetris_model = create_tetris_model_v0()
 memory = Memory()
-episodes = 10
+episodes = 1000
 for i_episode in range(episodes):
     # Restart the environment
     observation, info = env.reset()
@@ -210,10 +213,12 @@ for i_episode in range(episodes):
     print(f'Episode {i_episode} out of {episodes}')
     while True:
         # using our observation, choose an action and take it in the environment
-        action = choose_action(tetris_model, observation)
-        next_observation, reward, done, truncated, info = env.step(action)
+        pos, rot = choose_action(tetris_model, observation)
+        actions = env.internal_state.movement_planning(pos, rot)
+        for action in actions:
+            next_observation, reward, done, truncated, info = env.step(action)
         # add to memory
-        memory.add_to_memory(observation, action, reward)
+        memory.add_to_memory(observation, [pos, rot], reward)
 
         # is the episode over? did you crash or do so well that you're done?
         if done:
@@ -226,6 +231,7 @@ for i_episode in range(episodes):
                        observations2=np.array(memory.observations2),
                        actions=np.array(memory.actions),
                        discounted_rewards=discount_rewards(memory.rewards))
+            print(memory.rewards)
 
             # reset the memory
             memory.clear()
